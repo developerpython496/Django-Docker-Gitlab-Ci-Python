@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  backend:
+    command: >
+      sh -c "
+            python manage.py wait_for_db &&
+            python manage.py migrate &&
+            python manage.py runserver 0.0.0.0:8000"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app/:/usr/src/app
+      - static_volume:/usr/src/app/static
+      - media_volume:/usr/src/app/media
+    depends_on:
+      - postgresdb
+    <<: &web
+      build: ./app/
+      restart: always
+      env_file:
+        - ./app/.env
+
+  postgresdb:
+    image: postgres:15.2-alpine
+    restart: always
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    environment:
+      POSTGRES_DB: test
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+
+  celery-worker:
+    <<: *web
+    command:
+      - celery
+      - -A
+      - test.celery
+      - worker
+      - --loglevel=info
+      - --events
+      - --without-heartbeat
+      - --without-gossip
+      - --without-mingle
+      - --autoscale=10,2
+    depends_on:
+      - backend
+      - redis
+
+  celery-beat:
+    <<: *web
+    command:
+      - bash
+      - -c
+      - rm -f celerybeat.pid && celery -A test.celery beat -l info
+    depends_on:
+      - backend
+      - redis
+
+  redis:
+    image: redis:alpine3.18
+    restart: always
+
+volumes:
+  postgres_data:
+  static_volume:
+  media_volume:

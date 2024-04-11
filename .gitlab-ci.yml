@@ -1,0 +1,49 @@
+image: docker:20.10.23
+
+services:
+  - docker:dind
+
+variables:
+  DOCKER_HOST: tcp://docker:2375
+  DOCKER_DRIVER: overlay2
+
+stages:
+  - test
+  - build
+  - release
+
+test_backend:
+  stage: test
+  script:
+    - echo "Running tests..."
+
+build_backend:
+  stage: build
+  before_script:
+    - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
+  script:
+    - BUILD_IMAGE_NAME=$CI_REGISTRY_IMAGE/backend:dev_latest
+    - BUILD_IMAGE_NAME_VERSIONED=$CI_REGISTRY_IMAGE/backend:dev_$CI_COMMIT_SHORT_SHA
+    - docker build --pull --force-rm=true -t "$BUILD_IMAGE_NAME" -t "$BUILD_IMAGE_NAME_VERSIONED" ./app/
+    - docker push $CI_REGISTRY_IMAGE/backend --all-tags
+  after_script:
+    - docker logout ${CI_REGISTRY}
+  needs:
+    - job: test_backend
+  only:
+    - development
+
+development_release:
+  stage: release
+  variables:
+    environment: "development"
+    image_tag: dev_$CI_COMMIT_SHORT_SHA
+  trigger:
+    project: test/devops
+    branch: main
+    strategy: depend
+  needs:
+    - job: build_backend
+  only:
+    - development
+
